@@ -7,14 +7,16 @@ import com.twitter.finagle.http.{Status, Request, Response}
 import com.twitter.util.Future
 import com.typesafe.config.Config
 
+import scala.util.{Failure, Success}
 import scala.util.parsing.json.JSON
+import com.katapal.auth.{TokenVerifier => Verifier}
 
 /**
   * Created by David on 2/23/2016.
   */
 class AuthProxyFilter(protected val config: Config,
                       protected val cacheClient: CacheClient,
-                      protected val tokenVerifier: TokenVerifier,
+                      protected val tokenVerifier: Verifier,
                       protected val authService: Service[Request, Response])
   extends SimpleFilter[Request, Response] {
 
@@ -63,10 +65,10 @@ class AuthProxyFilter(protected val config: Config,
   }
 
   def makeToToken(s: String): Option[String] = {
-    if (tokenVerifier.verify(s))
-      Some(s)
-    else
-      None
+    tokenVerifier.verify(s) match {
+      case Success(_) => Some(s)
+      case Failure(_) => None
+    }
   }
 
   def getToTokenFromAuthServer(fromToken: String): Future[String] = {
@@ -84,7 +86,7 @@ class AuthProxyFilter(protected val config: Config,
               try {
                 val data = x.asInstanceOf[Map[String, String]]
                 data(config.getString("auth-response-param")) match {
-                  case toToken if tokenVerifier.verify(toToken) => toToken
+                  case toToken if tokenVerifier.verify(toToken).isSuccess => toToken
                   case _ => throw AuthServerException(authResponse, "Failed to verify JWT")
                 }
               } catch {

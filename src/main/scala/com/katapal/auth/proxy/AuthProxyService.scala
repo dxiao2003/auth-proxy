@@ -1,5 +1,6 @@
 package com.katapal.auth.proxy
 
+import com.katapal.auth.jwt.JWTVerifier
 import com.twitter.finagle.{Http, Service, http}
 
 import com.typesafe.config.Config
@@ -19,7 +20,7 @@ object AuthProxyService {
   def apply(config: Config): Service[http.Request, http.Response] = {
     val cacheClient = CacheClient(config)
     val authService = AuthService(config)
-    val tokenVerifier = ProxyJWTVerifier(config)
+    val tokenVerifier = new JWTVerifier(config)
     val authProxyFilter = new AuthProxyFilter(config, cacheClient, tokenVerifier, authService)
     val httpReverseProxy = Http.client.newService(config.getString("dest"))
 

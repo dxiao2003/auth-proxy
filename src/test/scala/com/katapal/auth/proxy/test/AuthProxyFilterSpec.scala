@@ -2,14 +2,14 @@ package com.katapal.auth.proxy.test
 
 import java.security.interfaces.RSAPrivateKey
 import java.security.{KeyPairGenerator, SecureRandom, Key}
-import java.security.spec.X509EncodedKeySpec
+
 import java.time.Instant
-import java.util
 import java.util.{Date, Base64}
 
-import com.katapal.auth.proxy.{CacheClient, ProxyJWTVerifier, AuthProxyFilter}
+import com.katapal.auth.jwt.JWTVerifier
+import com.katapal.auth.proxy.{CacheClient, AuthProxyFilter}
 import com.nimbusds.jose.crypto.{RSASSASigner, MACSigner}
-import com.nimbusds.jose.jwk.RSAKey
+
 import com.nimbusds.jose.{JWSAlgorithm, JWSSigner, JWSHeader}
 import com.nimbusds.jwt.{SignedJWT, JWTClaimsSet}
 import com.twitter.finagle.http.{Status, Request, Response}
@@ -37,7 +37,7 @@ class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with B
   val refConfig = ConfigFactory.load()
   val baseConfig = refConfig
     .withValue("auth-url", ConfigValueFactory.fromAnyRef("https://auth-server.com/jwt/"))
-    .withValue("issuer",  ConfigValueFactory.fromAnyRef("https://my-domain.com/"))
+    .withValue("signers.1.issuer",  ConfigValueFactory.fromAnyRef("https://my-domain.com/"))
     .withValue("audience",  ConfigValueFactory.fromAnyRef("https://my-domain.com/"))
 
   val encoder = Base64.getEncoder
@@ -47,7 +47,7 @@ class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with B
       val cacheClient = mock[CacheClient]
       val authService = mock[Service[Request, Response]]
       val httpReverseProxy = mock[Service[Request, Response]]
-      val tokenVerifier = ProxyJWTVerifier(config)
+      val tokenVerifier = new JWTVerifier(config)
       val authProxyFilter = new AuthProxyFilter(config, cacheClient, tokenVerifier, authService)
       val authProxyService = authProxyFilter.andThen(httpReverseProxy)
     }
@@ -213,7 +213,7 @@ class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with B
   def generateJWT(expirationTimeInFuture: Int, signer: JWSSigner, alg: JWSAlgorithm, config: Config) = {
     val now = Instant.now()
     val claims = new JWTClaimsSet.Builder()
-      .issuer(config.getString("issuer"))  // who creates the token and signs it
+      .issuer(config.getString("signers.1.issuer"))  // who creates the token and signs it
       .audience(config.getString("audience")) // to whom the token is intended to be sent
       .expirationTime(Date.from(now.plusSeconds(expirationTimeInFuture * 60))) // time when the token will expire
       .issueTime(new Date()) // a unique identifier for the token
@@ -222,9 +222,13 @@ class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with B
       .claim("email","mail@example.com") // additional claims/attributes about the subject can be added
       .build()
 
+    val header = new JWSHeader.Builder(alg)
+      .keyID("1")
+      .build()
+
     // A JWT is a JWS and/or a JWE with JSON claims as the payload.
     // In this example it is a JWS so we create a JsonWebSignature object.
-    val signedJWT = new SignedJWT(new JWSHeader(alg), claims)
+    val signedJWT = new SignedJWT(header, claims)
 
     signedJWT.sign(signer)
     signedJWT.serialize
@@ -237,8 +241,8 @@ class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with B
       val signer = new MACSigner(keyBytes)
       val encodedKey = encoder.encodeToString(keyBytes)
       val config = baseConfig
-        .withValue("algorithm", ConfigValueFactory.fromAnyRef("HS256"))
-        .withValue("verification-key", ConfigValueFactory.fromAnyRef(encodedKey))
+        .withValue("signers.1.algorithm", ConfigValueFactory.fromAnyRef("HS256"))
+        .withValue("signers.1.verification-key", ConfigValueFactory.fromAnyRef(encodedKey))
       // Create the Claims, which will be the content of the JWT
       val validJWT = generateJWT(10, signer, JWSAlgorithm.HS256, config)
       val invalidJWT = generateJWT(-1, signer, JWSAlgorithm.HS256, config)
@@ -257,8 +261,11 @@ class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with B
       val keyBytes = publicKey.getEncoded
 
       val config = baseConfig
-        .withValue("algorithm", ConfigValueFactory.fromAnyRef("RS256"))
-        .withValue("verification-key", ConfigValueFactory.fromAnyRef(encoder.encodeToString(keyBytes)))
+        .withValue("signers.1.algorithm", ConfigValueFactory.fromAnyRef("RS256"))
+        .withValue(
+          "signers.1.verification-key",
+          ConfigValueFactory.fromAnyRef(encoder.encodeToString(keyBytes))
+        )
       // Create the Claims, which will be the content of the JWT
       val validJWT = generateJWT(10, signer, JWSAlgorithm.RS256, config)
       val invalidJWT = generateJWT(-1, signer, JWSAlgorithm.RS256, config)
