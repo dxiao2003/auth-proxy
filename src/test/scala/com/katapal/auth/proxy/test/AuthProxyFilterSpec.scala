@@ -37,8 +37,8 @@ class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with B
   val refConfig = ConfigFactory.load()
   val baseConfig = refConfig
     .withValue("auth-url", ConfigValueFactory.fromAnyRef("https://auth-server.com/jwt/"))
-    .withValue("signers.1.issuer",  ConfigValueFactory.fromAnyRef("https://my-domain.com/"))
-    .withValue("audience",  ConfigValueFactory.fromAnyRef("https://my-domain.com/"))
+    .withValue("jwt.signers.1.issuer",  ConfigValueFactory.fromAnyRef("https://my-domain.com/"))
+    .withValue("jwt.audience",  ConfigValueFactory.fromAnyRef("https://my-domain.com/"))
 
   val encoder = Base64.getEncoder
 
@@ -47,7 +47,7 @@ class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with B
       val cacheClient = mock[CacheClient]
       val authService = mock[Service[Request, Response]]
       val httpReverseProxy = mock[Service[Request, Response]]
-      val tokenVerifier = new JWTVerifier(config)
+      val tokenVerifier = new JWTVerifier(config.getConfig("jwt"))
       val authProxyFilter = new AuthProxyFilter(config, cacheClient, tokenVerifier, authService)
       val authProxyService = authProxyFilter.andThen(httpReverseProxy)
     }
@@ -206,20 +206,60 @@ class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with B
     }
 
     it("should refresh token if JWT in cache fails to verify") {
+      new Fixture {
+        val r = Request("/")
+        val dummyToken = "asoifjoasidfjoaijf"
+        val authHeader = config.getString("from-auth-scheme") + " " + dummyToken
+        r.authorization = authHeader
 
+        when(cacheClient.get(dummyToken)).thenReturn(Future.value(Some(invalidJWT)))
+        when(cacheClient.set(dummyToken, validJWT)).thenReturn(Future.value(()))
+        val jwtResponse = Response(Status(200))
+        jwtResponse.contentString = "{\"token\": \"" + validJWT + "\"}"
+
+        val matchesRequest = SatisfiesFunction(
+          { request: Request => request != null && request.authorization.getOrElse("") == authHeader },
+          "matches authorization"
+        )
+
+
+        when(authService.apply(argThat(matchesRequest))).thenReturn(Future.value(jwtResponse))
+
+        val proxyResponse = Response(Status(200))
+        proxyResponse.contentString = "OK"
+        val matchesOnwardRequest = SatisfiesFunction(
+          { request: Request =>
+            request != null &&
+              request.authorization.getOrElse("") == config.getString("to-auth-scheme") + " " + validJWT
+          },
+          "has JWT")
+        when(httpReverseProxy.apply(argThat(matchesOnwardRequest))).thenReturn(Future.value(proxyResponse))
+
+        val f = authProxyService(r) map { response =>
+          response.statusCode shouldEqual 200
+          response.contentString shouldEqual "OK"
+        }
+
+        Await.ready(f)
+
+        verify(cacheClient).get(dummyToken)
+        verify(cacheClient).set(dummyToken, validJWT)
+        verify(authService).apply(argThat(matchesRequest))
+        verify(httpReverseProxy).apply(argThat(matchesOnwardRequest))
+      }
     }
   }
 
   def generateJWT(expirationTimeInFuture: Int, signer: JWSSigner, alg: JWSAlgorithm, config: Config) = {
     val now = Instant.now()
     val claims = new JWTClaimsSet.Builder()
-      .issuer(config.getString("signers.1.issuer"))  // who creates the token and signs it
-      .audience(config.getString("audience")) // to whom the token is intended to be sent
+      .issuer(config.getString("jwt.signers.1.issuer"))  // who creates the token and signs it
+      .audience(config.getString("jwt.audience")) // to whom the token is intended to be sent
       .expirationTime(Date.from(now.plusSeconds(expirationTimeInFuture * 60))) // time when the token will expire
-      .issueTime(new Date()) // a unique identifier for the token
+      .issueTime(new Date())
       .notBeforeTime(Date.from(now.minusSeconds(120))) // time before which the token is not yet valid (2 minutes ago)
       .subject("subject") // the subject/principal is whom the token is about
-      .claim("email","mail@example.com") // additional claims/attributes about the subject can be added
+      .claim("uid","12345678") // additional claims/attributes about the subject can be added
       .build()
 
     val header = new JWSHeader.Builder(alg)
@@ -235,14 +275,14 @@ class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with B
   }
 
   describe("An AuthProxyFilter") {
-    describe("using a symmetric key") {
+    describe("using HS256") {
       val random = new SecureRandom()
       val keyBytes = random.generateSeed(256)
       val signer = new MACSigner(keyBytes)
       val encodedKey = encoder.encodeToString(keyBytes)
       val config = baseConfig
-        .withValue("signers.1.algorithm", ConfigValueFactory.fromAnyRef("HS256"))
-        .withValue("signers.1.verification-key", ConfigValueFactory.fromAnyRef(encodedKey))
+        .withValue("jwt.signers.1.algorithm", ConfigValueFactory.fromAnyRef("HS256"))
+        .withValue("jwt.signers.1.verification-key", ConfigValueFactory.fromAnyRef(encodedKey))
       // Create the Claims, which will be the content of the JWT
       val validJWT = generateJWT(10, signer, JWSAlgorithm.HS256, config)
       val invalidJWT = generateJWT(-1, signer, JWSAlgorithm.HS256, config)
@@ -250,7 +290,7 @@ class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with B
       itShouldProxy(validJWT, invalidJWT, config)
     }
 
-    describe("using a public key") {
+    describe("using RS256") {
       // Generate an RSA key pair, which will be used for signing and verification of the JWT, wrapped in a JWK
       val keyGen = KeyPairGenerator.getInstance("RSA")
       keyGen.initialize(512)
@@ -261,9 +301,9 @@ class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with B
       val keyBytes = publicKey.getEncoded
 
       val config = baseConfig
-        .withValue("signers.1.algorithm", ConfigValueFactory.fromAnyRef("RS256"))
+        .withValue("jwt.signers.1.algorithm", ConfigValueFactory.fromAnyRef("RS256"))
         .withValue(
-          "signers.1.verification-key",
+          "jwt.signers.1.verification-key",
           ConfigValueFactory.fromAnyRef(encoder.encodeToString(keyBytes))
         )
       // Create the Claims, which will be the content of the JWT

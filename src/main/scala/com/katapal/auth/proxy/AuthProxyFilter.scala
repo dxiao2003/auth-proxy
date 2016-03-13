@@ -23,6 +23,7 @@ class AuthProxyFilter(protected val config: Config,
   protected val authUrl = new URL(config.getString("auth-url"))
   protected val fromAuthScheme = config.getString("from-auth-scheme")
   protected val toAuthScheme = config.getString("to-auth-scheme")
+  protected val authResponseParam = config.getString("auth-response-param")
 
   override def apply(request: Request, service: Service[Request, Response]): Future[Response] = {
     // get authorization and see if it is the from auth type
@@ -85,7 +86,7 @@ class AuthProxyFilter(protected val config: Config,
             case Some(x) =>
               try {
                 val data = x.asInstanceOf[Map[String, String]]
-                data(config.getString("auth-response-param")) match {
+                data(authResponseParam) match {
                   case toToken if tokenVerifier.verify(toToken).isSuccess => toToken
                   case _ => throw AuthServerException(authResponse, "Failed to verify JWT")
                 }
