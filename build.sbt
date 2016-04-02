@@ -1,3 +1,6 @@
+import com.amazonaws.auth.profile.ProfileCredentialsProvider
+import com.amazonaws.services.s3.model.{CannedAccessControlList, Region}
+
 name := "auth-proxy"
 
 version := "0.0.1"
@@ -13,5 +16,20 @@ libraryDependencies ++= Seq(
   "org.scalactic" %% "scalactic" % "2.2.6" % "test",
   "org.scalatest" %% "scalatest" % "2.2.6" % "test",
   "org.mockito" % "mockito-all" % "1.10.19" % "test",
-  "com.typesafe" % "config" % "1.3.0"
+  "com.typesafe" % "config" % "1.3.0",
+  "com.katapal" %% "auth" % "0.1.0"
 )
+
+
+s3region := Region.US_Standard
+
+awsProfile := "default"
+
+s3acl := CannedAccessControlList.Private
+
+s3credentials := new ProfileCredentialsProvider(awsProfile.value) |
+  new ProfileCredentialsProvider("aws.credentials", awsProfile.value)
+
+publishTo := Some(s3resolver.value("Katapal Maven s3 bucket", s3("maven.katapal.com")).withIvyPatterns)
+
+resolvers += s3resolver.value("Katapal Maven S3 resolver", s3("maven.katapal.com")).withIvyPatterns

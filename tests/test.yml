@@ -1,0 +1,21 @@
+---
+
+- hosts: default
+  vars_files: ["vars/redis.yml", "vars/auth.yml"]
+  vars:
+    dest:
+      host: "localhost"
+      port: 10229
+  roles:
+    - geerlingguy.redis
+  tasks:
+    - name: copy proxy conf
+      template: src=templates/application.conf dest=/tmp/application.conf
+    - name: copy spec conf
+      template: src=templates/spec.conf dest=/tmp/spec.conf
+    - name: move proxy conf
+      shell: mv /tmp/*.conf /vagrant/
+  become: yes
+  become_method: sudo
+
+...

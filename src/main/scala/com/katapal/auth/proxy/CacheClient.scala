@@ -2,7 +2,7 @@ package com.katapal.auth.proxy
 
 import com.twitter.finagle.Redis
 import com.twitter.finagle.redis.util.{CBToString, StringToChannelBuffer}
-import com.twitter.util.Future
+import com.twitter.util.{Await, Future}
 import com.typesafe.config.Config
 
 /**
@@ -10,15 +10,17 @@ import com.typesafe.config.Config
   */
 
 case class CacheClient(config: Config) {
-  val clientAddress = config.getString("cache-server")
-  val client = Redis.client.newRichClient(clientAddress)
+  private val clientAddress = config.getString("redis.host") + ":" + config.getString("redis.port")
+  private val client = Redis.client.newRichClient(clientAddress)
+  Await.result(client.auth(StringToChannelBuffer(config.getString("redis.password"))))
+  private val expirationMillis = config.getDuration("expiration").toMillis
 
   def get(key: String): Future[Option[String]] = {
     client.get(StringToChannelBuffer(key)).map(result => result.map(buf => CBToString(buf)))
   }
 
   def set(key: String, value: String): Future[Unit] = {
-    client.set(StringToChannelBuffer(key), StringToChannelBuffer(value))
+    client.pSetEx(StringToChannelBuffer(key), expirationMillis, StringToChannelBuffer(value))
   }
 }
 

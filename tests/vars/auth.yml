@@ -1,0 +1,19 @@
+---
+
+jwt:
+  verification-key: "t+V1CgIUKv41SjF5/FbBiZFZ7Dx13ksuDHh7iIs8RWtxiOHBn/N/nDC24QxMvBTfHus9na/gCVThYfay5h97z365KjTVXDjz0P0loInFOeqmjMfPVzFcw+2EWezZjanAKvwyXkEWvolDHf/HZ26UkAXT7XvridKhmmYllX0jvxVHS3LsKEbyWjU7dttmHMCIURwPbvn739z8o05wxmBxFY0w9LsQumy3BWorWeWR6FNNBqYhdRFECO7RtJT0B2UDp2jocVMCYsJMF0qmB/u8oettLDixEfkertw3a1szK6ZIMer9W+IlxlxLsQaYs02M8Cn8nSB6yS/bcsvDjFWkMw=="
+  issuer: "i"
+  audience: "a"
+  key-id: "my-key-id"
+  algorithm: "HS256"
+
+auth:
+  host: localhost
+  port: 38354
+  path: jwt/
+
+proxy:
+  host: localhost
+  port: 32312
+
+...

@@ -1,4 +1,4 @@
-package com.katapal.auth.proxy.test
+package com.katapal.auth.proxy
 
 import java.security.interfaces.RSAPrivateKey
 import java.security.{KeyPairGenerator, SecureRandom, Key}
@@ -7,7 +7,6 @@ import java.time.Instant
 import java.util.{Date, Base64}
 
 import com.katapal.auth.jwt.JWTVerifier
-import com.katapal.auth.proxy.{CacheClient, AuthProxyFilter}
 import com.nimbusds.jose.crypto.{RSASSASigner, MACSigner}
 
 import com.nimbusds.jose.{JWSAlgorithm, JWSSigner, JWSHeader}
@@ -24,17 +23,10 @@ import org.scalatest.{BeforeAndAfter, Matchers, FunSpec}
 import org.mockito.Mockito._
 import org.mockito.Matchers._
 
-/**
-  * Created by David on 2/23/2016.
-  */
 
-case class SatisfiesFunction[A](f: A => Boolean, msg: String) extends ArgumentMatcher[A] {
-  def matches(x: Any): Boolean = f(x.asInstanceOf[A])
-  override def toString: String = msg
-}
 
-class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with BeforeAndAfter {
-  val refConfig = ConfigFactory.load()
+class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with BeforeAndAfter with GenerateJWT {
+  val refConfig = AuthProxyServer.validateConfig(ConfigFactory.load())
   val baseConfig = refConfig
     .withValue("auth-url", ConfigValueFactory.fromAnyRef("https://auth-server.com/jwt/"))
     .withValue("jwt.signers.1.issuer",  ConfigValueFactory.fromAnyRef("https://my-domain.com/"))
@@ -250,30 +242,6 @@ class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with B
     }
   }
 
-  def generateJWT(expirationTimeInFuture: Int, signer: JWSSigner, alg: JWSAlgorithm, config: Config) = {
-    val now = Instant.now()
-    val claims = new JWTClaimsSet.Builder()
-      .issuer(config.getString("jwt.signers.1.issuer"))  // who creates the token and signs it
-      .audience(config.getString("jwt.audience")) // to whom the token is intended to be sent
-      .expirationTime(Date.from(now.plusSeconds(expirationTimeInFuture * 60))) // time when the token will expire
-      .issueTime(new Date())
-      .notBeforeTime(Date.from(now.minusSeconds(120))) // time before which the token is not yet valid (2 minutes ago)
-      .subject("subject") // the subject/principal is whom the token is about
-      .claim("uid","12345678") // additional claims/attributes about the subject can be added
-      .build()
-
-    val header = new JWSHeader.Builder(alg)
-      .keyID("1")
-      .build()
-
-    // A JWT is a JWS and/or a JWE with JSON claims as the payload.
-    // In this example it is a JWS so we create a JsonWebSignature object.
-    val signedJWT = new SignedJWT(header, claims)
-
-    signedJWT.sign(signer)
-    signedJWT.serialize
-  }
-
   describe("An AuthProxyFilter") {
     describe("using HS256") {
       val random = new SecureRandom()
@@ -284,8 +252,9 @@ class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with B
         .withValue("jwt.signers.1.algorithm", ConfigValueFactory.fromAnyRef("HS256"))
         .withValue("jwt.signers.1.verification-key", ConfigValueFactory.fromAnyRef(encodedKey))
       // Create the Claims, which will be the content of the JWT
-      val validJWT = generateJWT(10, signer, JWSAlgorithm.HS256, config)
-      val invalidJWT = generateJWT(-1, signer, JWSAlgorithm.HS256, config)
+      val jwtConfig = config.getConfig("jwt")
+      val validJWT = generateJWT(jwtConfig, signer, JWSAlgorithm.HS256, "1", minutesInFuture(10))
+      val invalidJWT = generateJWT(jwtConfig, signer, JWSAlgorithm.HS256, "1", minutesInFuture(-1))
 
       itShouldProxy(validJWT, invalidJWT, config)
     }
@@ -307,8 +276,9 @@ class AuthProxyFilterSpec extends FunSpec with Matchers with MockitoSugar with B
           ConfigValueFactory.fromAnyRef(encoder.encodeToString(keyBytes))
         )
       // Create the Claims, which will be the content of the JWT
-      val validJWT = generateJWT(10, signer, JWSAlgorithm.RS256, config)
-      val invalidJWT = generateJWT(-1, signer, JWSAlgorithm.RS256, config)
+      val jwtConfig = config.getConfig("jwt")
+      val validJWT = generateJWT(jwtConfig, signer, JWSAlgorithm.RS256, "1", minutesInFuture(10))
+      val invalidJWT = generateJWT(jwtConfig, signer, JWSAlgorithm.RS256, "1", minutesInFuture(-1))
 
       itShouldProxy(validJWT, invalidJWT, config)
     }

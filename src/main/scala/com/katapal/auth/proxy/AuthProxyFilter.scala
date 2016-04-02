@@ -42,7 +42,7 @@ class AuthProxyFilter(protected val config: Config,
         r.wwwAuthenticate = fromAuthScheme
         Future.value(r)
       case Some(fromToken) =>
-        try {
+        val serviceResponse =
           for {
           // if authorization found and right type, check cache
             cacheResult <- cacheClient.get(fromToken)
@@ -51,13 +51,13 @@ class AuthProxyFilter(protected val config: Config,
             // update the request and send it to the service
             response <- service(setRequestAuthorization(request, t))
           } yield response
-        } catch {
+        serviceResponse rescue {
           case AuthServerException(authResponse, msg) =>
             if (authResponse.statusCode == 403)
               Future.value(Response(Status(403)))
             else if (authResponse.statusCode == 401) {
               val response = Response(Status(401))
-              response.wwwAuthenticate = authResponse.wwwAuthenticate.getOrElse(fromAuthScheme)
+              response.wwwAuthenticate = fromAuthScheme
               Future.value(response)
             } else
               Future.value(Response(Status(500)))
@@ -88,7 +88,7 @@ class AuthProxyFilter(protected val config: Config,
                 val data = x.asInstanceOf[Map[String, String]]
                 data(authResponseParam) match {
                   case toToken if tokenVerifier.verify(toToken).isSuccess => toToken
-                  case _ => throw AuthServerException(authResponse, "Failed to verify JWT")
+                  case _ => throw AuthServerException(authResponse, "Failed to verify server token")
                 }
               } catch {
                 case e: Throwable =>
