@@ -13,6 +13,8 @@ case class CacheClient(config: Config) {
   private val clientAddress = config.getString("redis.host") + ":" + config.getString("redis.port")
   private val client = Redis.client.newRichClient(clientAddress)
   Await.result(client.auth(StringToChannelBuffer(config.getString("redis.password"))))
+  if (config.hasPath("redis.database"))
+    Await.result(client.select(config.getInt("redis.database")))
   private val expirationMillis = config.getDuration("expiration").toMillis
 
   def get(key: String): Future[Option[String]] = {
