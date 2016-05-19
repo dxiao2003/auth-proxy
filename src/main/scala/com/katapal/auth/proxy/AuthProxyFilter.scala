@@ -3,13 +3,14 @@ package com.katapal.auth.proxy
 import java.net.URL
 
 import com.twitter.finagle.{Service, SimpleFilter}
-import com.twitter.finagle.http.{Status, Request, Response}
+import com.twitter.finagle.http.{Request, Response, Status}
 import com.twitter.util.Future
 import com.typesafe.config.Config
 
 import scala.util.{Failure, Success}
 import scala.util.parsing.json.JSON
 import com.katapal.auth.{TokenVerifier => Verifier}
+import com.typesafe.scalalogging.StrictLogging
 
 /**
   * Created by David on 2/23/2016.
@@ -18,7 +19,7 @@ class AuthProxyFilter(protected val config: Config,
                       protected val cacheClient: CacheClient,
                       protected val tokenVerifier: Verifier,
                       protected val authService: Service[Request, Response])
-  extends SimpleFilter[Request, Response] {
+  extends SimpleFilter[Request, Response] with StrictLogging {
 
   protected val authUrl = new URL(config.getString("auth-url"))
   protected val fromAuthScheme = config.getString("from-auth-scheme")
@@ -37,6 +38,7 @@ class AuthProxyFilter(protected val config: Config,
 
     validAuth match {
       case None =>
+        logger.trace("Missing Authorization header")
         // if authorization is missing or wrong type, return 401 and set WWW-authenticate header
         val r = Response(Status(401))
         r.wwwAuthenticate = fromAuthScheme
@@ -53,6 +55,8 @@ class AuthProxyFilter(protected val config: Config,
           } yield response
         serviceResponse rescue {
           case AuthServerException(authResponse, msg) =>
+            logger.error("Error getting token: " + msg)
+            logger.trace(s"Response was: ${authResponse.contentString}")
             if (authResponse.statusCode == 403)
               Future.value(Response(Status(403)))
             else if (authResponse.statusCode == 401) {
@@ -82,17 +86,20 @@ class AuthProxyFilter(protected val config: Config,
           // if success, cache token and construct new request
           JSON.parseFull(authResponse.contentString) match {
             case None =>
-              throw AuthServerException(authResponse, "Invalid data")
+              throw AuthServerException(authResponse, "Could not parse response")
             case Some(x) =>
               try {
                 val data = x.asInstanceOf[Map[String, String]]
-                data(authResponseParam) match {
-                  case toToken if tokenVerifier.verify(toToken).isSuccess => toToken
-                  case _ => throw AuthServerException(authResponse, "Failed to verify server token")
+                val toToken = data(authResponseParam)
+                tokenVerifier.verify(toToken) match {
+                  case Success(uid) => toToken
+                  case Failure(e) => throw AuthServerException(authResponse, s"Failed to verify server token due to $e")
                 }
               } catch {
+                case e: AuthServerException =>
+                  throw e
                 case e: Throwable =>
-                  throw AuthServerException(authResponse, "Invalid data")
+                  throw AuthServerException(authResponse, s"Could not get token due to $e")
               }
           }
         case _ =>

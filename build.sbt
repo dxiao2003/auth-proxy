@@ -17,9 +17,15 @@ libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "2.2.6" % "test",
   "org.mockito" % "mockito-all" % "1.10.19" % "test",
   "com.typesafe" % "config" % "1.3.0",
+  "org.slf4j" % "slf4j-api" % "1.7.18",
+  "org.slf4j" % "slf4j-log4j12" % "1.7.18",
+  "com.typesafe.scala-logging" %% "scala-logging" % "3.1.0",
   "com.katapal" %% "auth" % "0.1.0"
 )
 
+enablePlugins(UniversalPlugin)
+
+enablePlugins(JavaServerAppPackaging)
 
 s3region := Region.US_Standard
 
