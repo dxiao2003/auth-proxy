@@ -25,6 +25,12 @@ libraryDependencies ++= Seq(
 
 enablePlugins(UniversalPlugin)
 
+enablePlugins(RpmPlugin)
+
+rpmVendor := "katapal"
+
+rpmLicense := Some("Copyright")
+
 enablePlugins(JavaServerAppPackaging)
 
 s3region := Region.US_Standard
