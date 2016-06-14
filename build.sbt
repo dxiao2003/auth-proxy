@@ -27,6 +27,14 @@ enablePlugins(UniversalPlugin)
 
 enablePlugins(RpmPlugin)
 
+enablePlugins(DebianPlugin)
+
+maintainer := "David Xiao <dxiao@katapal.com>"
+
+packageSummary := "Katapal Auth Proxy"
+
+packageDescription := "Katapal Auth Proxy"
+
 rpmVendor := "katapal"
 
 rpmLicense := Some("Copyright")
